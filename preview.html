@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geometry Dash - Chip High Fly</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 10px;
+  background: #111;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+h1 { color: #ffe65b; letter-spacing: 3px; }
+canvas {
+  display: block;
+  width: min(100%, 900px);
+  height: auto;
+  margin: 12px auto;
+  border: 3px solid white;
+  touch-action: none;
+}
+button {
+  margin: 6px;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 8px;
+  background: #ffe65b;
+  color: #111;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+#menu, #accountScreen {
+  max-width: 900px;
+  margin: 12px auto;
+  padding: 14px;
+  background: #202344;
+  border: 2px solid #5965b8;
+  border-radius: 12px;
+}
+#accountScreen {
+  max-width: 420px;
+  margin: 45px auto;
+  padding: 22px;
+}
+#accountScreen h2 { color: #ffe65b; }
+#accountScreen input {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  padding: 12px;
+  border: 2px solid #5965b8;
+  border-radius: 7px;
+  background: #111;
+  color: white;
+  font-size: 16px;
+}
+#accountMessage { min-height: 22px; color: #ffe65b; }
+.levels {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+.level {
+  width: 250px;
+  max-width: 100%;
+  padding: 10px;
+  background: #303965;
+  border: 3px solid #5868b8;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.level.selected {
+  border-color: #ffe65b;
+  background: #46548b;
+}
+.level h2 { font-size: 17px; }
+.level p { font-size: 14px; }
+.hidden { display: none !important; }
+#instructions { min-height: 22px; }
+#status { color: #ffe65b; }
+</style>
+</head>
+<body>
+
+<div id="accountScreen">
+  <h2>GEOMETRY DASH ACCOUNT</h2>
+  <p>Create an account or log in to play.</p>
+  <input id="accountUsername" type="text" placeholder="Username" maxlength="24">
+  <input id="accountPassword" type="password" placeholder="Password" maxlength="100">
+  <button type="button" onclick="createAccount()">CREATE ACCOUNT</button>
+  <button type="button" onclick="loginAccount()">LOG IN</button>
+  <p id="accountMessage"></p>
+  <small>Accounts are saved in this browser on this device.</small>
+</div>
+
+<div id="gameApp" class="hidden">
+<h1>GEOMETRY DASH</h1>
+
+<div id="menu">
+  <h2>CHOOSE YOUR LEVEL</h2>
+  <div class="levels">
+    <div class="level selected" id="level1" onclick="selectLevel(1)">
+      <h2>🟦 STEREO MADNESS</h2>
+      <p>LEVEL 1</p>
+      <p>Classic jumping!</p>
+    </div>
+    <div class="level" id="level2" onclick="selectLevel(2)">
+      <h2>🟪 LEFT RIGHT SAWTOOTH</h2>
+      <p>LEVEL 2</p>
+      <p>Different spike patterns!</p>
+    </div>
+    <div class="level" id="level3" onclick="selectLevel(3)">
+      <h2>🟧 CHIP HIGH FLY</h2>
+      <p>LEVEL 3</p>
+      <p>Ship portals and ceiling spikes!</p>
+    </div>
+  </div>
+  <button onclick="startGame()">PLAY LEVEL ▶</button>
+</div>
+
+<p id="levelLabel">LEVEL 1: STEREO MADNESS</p>
+<canvas id="game" width="900" height="400"></canvas>
+<p id="instructions">Choose a level and press PLAY LEVEL!</p>
+<p id="status"></p>
+<button onclick="restart()">RESTART ↻</button>
+<button onclick="showMenu()">LEVEL MENU</button>
+
+<script>
+"use strict";
+
+// ACCOUNT SYSTEM
+const ACCOUNT_STORAGE_KEY = "geometryDashAccounts_v1";
+const accountScreen = document.getElementById("accountScreen");
+const gameApp = document.getElementById("gameApp");
+const accountMessage = document.getElementById("accountMessage");
+
+function readAccounts() {
+  try {
+    return JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || "{}");
+  } catch (error) {
+    return {};
+  }
+}
+
+function accountInputs() {
+  return {
+    username: document.getElementById("accountUsername").value.trim(),
+    password: document.getElementById("accountPassword").value
+  };
+}
+
+function enterGame(username) {
+  sessionStorage.setItem("geometryDashCurrentUser", username);
+  accountScreen.classList.add("hidden");
+  gameApp.classList.remove("hidden");
+}
+
+function createAccount() {
+  const { username, password } = accountInputs();
+
+  if (username.length < 3) {
+    accountMessage.textContent = "Username must be at least 3 characters.";
+    return;
+  }
+
+  if (password.length < 4) {
+    accountMessage.textContent = "Password must be at least 4 characters.";
+    return;
+  }
+
+  const accounts = readAccounts();
+  const key = username.toLowerCase();
+
+  if (accounts[key]) {
+    accountMessage.textContent = "That username already exists. Please log in.";
+    return;
+  }
+
+  accounts[key] = { username, password };
+  localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
+  enterGame(username);
+}
+
+function loginAccount() {
+  const { username, password } = accountInputs();
+  const accounts = readAccounts();
+  const account = accounts[username.toLowerCase()];
+
+  if (!account || account.password !== password) {
+    accountMessage.textContent = "Incorrect username or password.";
+    return;
+  }
+
+  enterGame(account.username);
+}
+
+// GAME SETTINGS
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const menu = document.getElementById("menu");
+const instructions = document.getElementById("instructions");
+const statusText = document.getElementById("status");
+const levelLabel = document.getElementById("levelLabel");
+
+const LEVELS = {
+  1: {
+    name: "STEREO MADNESS",
+    length: 4300,
+    speed: 5.8,
+    color1: "#21b9f3",
+    color2: "#1587df",
+    obstacles: [
+      [400,"spike"],[800,"spike"],[950,"double"],
+      [1200,"spike"],[1350,"triple"],[1530,"double"],
+      [1700,"spike"],[1900,"triple"],[2300,"spike"],
+      [2500,"triple"],[2590,"spike"],[2800,"triple"],
+      [3000,"double"],[3210,"triple"],[3470,"double"],
+      [3680,"triple"],[3930,"double"],[4140,"triple"]
+    ]
+  },
+  2: {
+    name: "LEFT RIGHT SAWTOOTH",
+    length: 4600,
+    speed: 5.8,
+    color1: "#a855f7",
+    color2: "#4c1d95",
+    obstacles: [
+      [330,"double"],[650,"spike"],[940,"triple"],
+      [1230,"spike"],[1390,"double"],[1700,"triple"],
+      [2040,"double"],[2260,"spike"],[2480,"triple"],
+      [2780,"spike"],[2930,"double"],[3200,"triple"],
+      [3540,"double"],[3740,"spike"],[3920,"triple"],
+      [4230,"double"],[4410,"triple"]
+    ]
+  },
+  3: {
+    name: "CHIP HIGH FLY",
+    length: 7000,
+    speed: 6.5,
+    color1: "#ff8a3d",
+    color2: "#8b28d9",
+    obstacles: [
+      [350,"spike"],[530,"double"],[850,"triple"],
+      [1190,"double"],[1410,"spike"],[1580,"triple"],
+      [1900,"spike"],[2070,"double"],[2310,"triple"],
+      [2660,"double"],[2870,"spike"],[3050,"triple"],
+      [3380,"spike"],[3550,"double"],[3790,"triple"],
+      [4130,"double"],[4350,"spike"],[4510,"triple"],
+      [4750,"double"],[5000,"spike"],[5180,"triple"],
+      [5420,"double"],[5650,"spike"],[5840,"triple"],
+      [6080,"double"],[6370,"spike"],[6540,"triple"],
+      [6790,"double"]
+    ]
+  }
+};
+
+let selectedLevel = 1;
+let level = LEVELS[1];
+let cube;
+let obstacles = [];
+let camera = 0;
+let groundY = 330;
+let speed = 5.8;
+let started = false;
+let dead = false;
+let won = false;
+let shipMode = false;
+let thrusting = false;
+let spaceHeld = false;
+let pointerHeld = false;
+
+const gravity = 0.85;
+const jumpPower = -13.5;
+const PLAYER_SIZE = 32;
+const PLATFORM_Y = 72;
+const SPIKE_LENGTH = 48;
+const SPIKE_GAP = 42;
+const WALL_SPACING = 190;
+const WALL_WIDTH = 24;
+const WALL_OPEN_TOP = 90;
+const WALL_OPEN_BOTTOM = 365;
+
+function selectLevel(n) {
+  selectedLevel = n;
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById("level" + i)
+      .classList.toggle("selected", i === n);
+  }
+  levelLabel.textContent = "LEVEL " + n + ": " + LEVELS[n].name;
+  statusText.textContent = "Selected: " + LEVELS[n].name;
+}
+
+function stopInput() {
+  spaceHeld = false;
+  pointerHeld = false;
+  thrusting = false;
+}
+
+function showMenu() {
+  started = false;
+  dead = false;
+  won = false;
+  shipMode = false;
+  stopInput();
+  menu.classList.remove("hidden");
+  instructions.textContent = "Choose a level and press PLAY LEVEL!";
+  statusText.textContent = "Choose your level.";
+}
+
+function startGame() {
+  menu.classList.add("hidden");
+  resetGame();
+}
+
+function restart() {
+  menu.classList.add("hidden");
+  resetGame();
+}
+
+function resetGame() {
+  level = LEVELS[selectedLevel];
+  speed = level.speed;
+  camera = 0;
+  groundY = 330;
+
+  cube = {
+    x: 120,
+    y: groundY - PLAYER_SIZE,
+    size: PLAYER_SIZE,
+    vy: 0,
+    grounded: true,
+    rotation: 0
+  };
+
+  obstacles = level.obstacles.map(o => ({ x: o[0], type: o[1] }));
+  started = true;
+  dead = false;
+  won = false;
+  shipMode = false;
+  stopInput();
+
+  levelLabel.textContent = "LEVEL " + selectedLevel + ": " + level.name;
+  statusText.textContent = "";
+  updateInstructions();
+}
+
+function updateInstructions() {
+  if (!started) {
+    instructions.textContent = "Choose a level and press PLAY LEVEL!";
+  } else if (dead) {
+    instructions.textContent = "Crashed! Press SPACE or click to try again.";
+  } else if (won) {
+    instructions.textContent = "Level complete! Press SPACE or click to play again.";
+  } else if (shipMode) {
+    instructions.textContent = "🚀 SHIP: Hold SPACE or click to fly up; release to descend!";
+  } else {
+    instructions.textContent = "Press SPACE, click, or tap to jump!";
+  }
+}
+
+function jump() {
+  if (!started) return;
+  if (dead || won) {
+    resetGame();
+    return;
+  }
+  if (shipMode) {
+    thrusting = true;
+  } else if (cube.grounded) {
+    cube.vy = jumpPower;
+    cube.grounded = false;
+  }
+}
+
+document.addEventListener("keydown", e => {
+  if (["Space", "ArrowUp", "KeyW"].includes(e.code)) {
+    e.preventDefault();
+    if (!spaceHeld) {
+      spaceHeld = true;
+      jump();
+    }
+    if (shipMode && started && !dead && !won) thrusting = true;
+  }
+  if (e.code === "Escape") showMenu();
+});
+
+document.addEventListener("keyup", e => {
+  if (["Space", "ArrowUp", "KeyW"].includes(e.code)) {
+    spaceHeld = false;
+    thrusting = pointerHeld;
+  }
+});
+
+canvas.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+  pointerHeld = true;
+  jump();
+  if (shipMode && started && !dead && !won) thrusting = true;
+});
+
+canvas.addEventListener("pointerup", () => {
+  pointerHeld = false;
+  thrusting = spaceHeld;
+});
+
+canvas.addEventListener("pointercancel", () => {
+  pointerHeld = false;
+  thrusting = spaceHeld;
+});
+
+window.addEventListener("blur", stopInput);
+
+function portalStart() { return level.length * 0.70; }
+function portalEnd() { return level.length * 0.90; }
+
+function drawPortal(worldX, color, label) {
+  const x = worldX - camera;
+  if (x < -70 || x > 970) return;
+  const y = 190;
+
+  ctx.save();
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.ellipse(x, y, 22, 46, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(x, y, 12, 36, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 12px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(label, x, y - 56);
+  ctx.restore();
+  ctx.textAlign = "left";
+}
+
+function obstacleCount(type) {
+  if (type === "double") return 2;
+  if (type === "triple") return 3;
+  return 1;
+}
+
+function drawSpike(x, baseY, size, upsideDown = false) {
+  ctx.fillStyle = "#ff3045";
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  if (upsideDown) {
+    ctx.moveTo(x, baseY);
+    ctx.lineTo(x + size / 2, baseY + size);
+    ctx.lineTo(x + size, baseY);
+  } else {
+    ctx.moveTo(x, baseY);
+    ctx.lineTo(x + size / 2, baseY - size);
+    ctx.lineTo(x + size, baseY);
+  }
+
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawBackground() {
+  const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+  gradient.addColorStop(0, level.color1);
+  gradient.addColorStop(1, level.color2);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 900, 400);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.13)";
+  ctx.lineWidth = 1;
+  const grid = 50;
+  const offset = -(camera % grid);
+
+  for (let x = offset; x < 900; x += grid) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 400);
+    ctx.stroke();
+  }
+
+  for (let y = 0; y < 400; y += grid) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(900, y);
+    ctx.stroke();
+  }
+}
+
+function drawGround() {
+  ctx.fillStyle = "#202344";
+  ctx.fillRect(0, groundY, 900, 400 - groundY);
+  ctx.fillStyle = "#ffe65b";
+  ctx.fillRect(0, groundY, 900, 5);
+}
+
+function drawObstacle(o) {
+  const x = o.x - camera;
+  for (let i = 0; i < obstacleCount(o.type); i++) {
+    drawSpike(x + i * 30, groundY, 38);
+  }
+}
+
+function drawShipPlatform() {
+  if (selectedLevel !== 3) return;
+  const start = portalStart();
+  const end = portalEnd();
+  const left = start - camera;
+  const right = end - camera;
+  if (right < 0 || left > 900) return;
+
+  const visibleLeft = Math.max(0, left);
+  const visibleRight = Math.min(900, right);
+
+  ctx.fillStyle = "#303965";
+  ctx.fillRect(visibleLeft, PLATFORM_Y - 18, visibleRight - visibleLeft, 18);
+  ctx.fillStyle = "#b7f4ff";
+  ctx.fillRect(visibleLeft, PLATFORM_Y - 18, visibleRight - visibleLeft, 5);
+
+  const firstSpike = Math.ceil((start + 70) / SPIKE_GAP) * SPIKE_GAP;
+  for (let worldX = firstSpike; worldX < end - 70; worldX += SPIKE_GAP) {
+    const x = worldX - camera;
+    if (x > -60 && x < 960) drawSpike(x, PLATFORM_Y, SPIKE_LENGTH, true);
+  }
+}
+
+function drawExitWalls() {
+  if (selectedLevel !== 3) return;
+  const exitX = portalEnd() - camera;
+  const wallXs = [
+    exitX - WALL_SPACING / 2,
+    exitX + WALL_SPACING / 2
+  ];
+
+  for (const x of wallXs) {
+    if (x < -WALL_WIDTH || x > 900) continue;
+
+    ctx.fillStyle = "#303965";
+    ctx.fillRect(x, 0, WALL_WIDTH, WALL_OPEN_TOP);
+    ctx.fillRect(x, WALL_OPEN_BOTTOM, WALL_WIDTH, 400 - WALL_OPEN_BOTTOM);
+
+    ctx.fillStyle = "#b7f4ff";
+    ctx.fillRect(x, WALL_OPEN_TOP - 5, WALL_WIDTH, 5);
+    ctx.fillRect(x, WALL_OPEN_BOTTOM, WALL_WIDTH, 5);
+
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, 0, WALL_WIDTH, WALL_OPEN_TOP);
+    ctx.strokeRect(x, WALL_OPEN_BOTTOM, WALL_WIDTH, 400 - WALL_OPEN_BOTTOM);
+  }
+}
+
+function hitSpike(o) {
+  const x = o.x - camera;
+  for (let i = 0; i < obstacleCount(o.type); i++) {
+    const sx = x + i * 30;
+    const horizontal =
+      cube.x + cube.size - 5 > sx + 5 &&
+      cube.x + 5 < sx + 33;
+    const vertical =
+      cube.y + cube.size - 5 > groundY - 30 &&
+      cube.y + 5 < groundY;
+    if (horizontal && vertical) return true;
+  }
+  return false;
+}
+
+function ceilingSpikeCollision() {
+  if (selectedLevel !== 3 || !shipMode) return false;
+  const start = portalStart();
+  const end = portalEnd();
+  const firstSpike = Math.ceil((start + 70) / SPIKE_GAP) * SPIKE_GAP;
+
+  for (let worldX = firstSpike; worldX < end - 70; worldX += SPIKE_GAP) {
+    const x = worldX - camera;
+    if (
+      cube.x + cube.size - 4 > x + 4 &&
+      cube.x + 4 < x + 38 &&
+      cube.y < PLATFORM_Y + SPIKE_LENGTH &&
+      cube.y + cube.size > PLATFORM_Y
+    ) return true;
+  }
+  return false;
+}
+
+function exitWallCollision() {
+  if (selectedLevel !== 3) return false;
+  const exitX = portalEnd() - camera;
+  const wallXs = [
+    exitX - WALL_SPACING / 2,
+    exitX + WALL_SPACING / 2
+  ];
+
+  for (const x of wallXs) {
+    const overlapsX = cube.x + cube.size > x && cube.x < x + WALL_WIDTH;
+    const hitsUpper = cube.y < WALL_OPEN_TOP;
+    const hitsLower = cube.y + cube.size > WALL_OPEN_BOTTOM;
+    if (overlapsX && (hitsUpper || hitsLower)) return true;
+  }
+  return false;
+}
+
+function drawCube() {
+  ctx.save();
+  ctx.translate(cube.x + 16, cube.y + 16);
+  ctx.rotate(cube.rotation);
+
+  ctx.fillStyle = "#ff303e";
+  ctx.fillRect(-16, -16, 32, 32);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(-16, -16, 32, 32);
+
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(-9, -7, 7, 8);
+  ctx.fillRect(3, -7, 7, 8);
+  ctx.fillStyle = "#111";
+  ctx.fillRect(-7, -5, 3, 4);
+  ctx.fillRect(5, -5, 3, 4);
+  ctx.restore();
+}
+
+function drawShip() {
+  const x = cube.x;
+  const y = cube.y;
+
+  ctx.fillStyle = thrusting ? "#fff36b" : "#ff8a3d";
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y + 12);
+  ctx.lineTo(x - 19 - Math.random() * 5, y + 17);
+  ctx.lineTo(x - 4, y + 23);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#22ffb4";
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x - 7, y + 5);
+  ctx.lineTo(x + 24, y + 16);
+  ctx.lineTo(x - 7, y + 29);
+  ctx.lineTo(x - 2, y + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#1685ff";
+  ctx.beginPath();
+  ctx.arc(x + 7, y + 16, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ff303e";
+  ctx.beginPath();
+  ctx.moveTo(x + 1, y + 17);
+  ctx.lineTo(x - 5, y + 31);
+  ctx.lineTo(x + 12, y + 22);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawUI() {
+  const progress = Math.min(100, Math.floor(camera / level.length * 100));
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 20px Arial";
+  ctx.fillText(level.name, 20, 32);
+  ctx.font = "16px Arial";
+  ctx.fillText("Progress: " + progress + "%", 20, 57);
+
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.fillRect(270, 20, 360, 12);
+  ctx.fillStyle = "#ffe65b";
+  ctx.fillRect(270, 20, 360 * progress / 100, 12);
+
+  if (selectedLevel === 3 && progress >= 65 && progress < 95) {
+    ctx.textAlign = "center";
+    ctx.font = "bold 17px Arial";
+    ctx.fillStyle = "#fff";
+    ctx.fillText(
+      shipMode ? "🚀 SHIP MODE! HOLD TO FLY UP" : "PORTAL AHEAD!",
+      450, 82
+    );
+    ctx.textAlign = "left";
+  }
+}
+
+function drawEndScreen(title, subtitle) {
+  ctx.fillStyle = "rgba(0,0,0,0.78)";
+  ctx.fillRect(0, 0, 900, 400);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffe65b";
+  ctx.font = "bold 42px Arial";
+  ctx.fillText(title, 450, 155);
+  ctx.fillStyle = "#fff";
+  ctx.font = "20px Arial";
+  ctx.fillText(subtitle, 450, 200);
+  ctx.font = "17px Arial";
+  ctx.fillText("SPACE or click to try again", 450, 245);
+  ctx.fillText("Use LEVEL MENU to change levels", 450, 275);
+  ctx.textAlign = "left";
+}
+
+function update() {
+  if (!started || dead || won) return;
+
+  camera += speed;
+  const progress = camera / level.length;
+  const nextShipMode =
+    selectedLevel === 3 && progress >= 0.70 && progress < 0.90;
+
+  if (nextShipMode !== shipMode) {
+    const enteringShip = nextShipMode;
+    shipMode = nextShipMode;
+    cube.vy = 0;
+    cube.rotation = 0;
+
+    if (enteringShip) {
+      cube.grounded = false;
+      cube.y = 190;
+      thrusting = spaceHeld || pointerHeld;
+    } else {
+      cube.y = groundY - cube.size;
+      cube.vy = 0;
+      cube.grounded = true;
+      cube.rotation = 0;
+      thrusting = false;
+    }
+    updateInstructions();
+  }
+
+  if (shipMode) {
+    if (thrusting) cube.vy -= 0.42;
+    else cube.vy += 0.30;
+
+    cube.vy = Math.max(-6.5, Math.min(6.5, cube.vy));
+    cube.y += cube.vy;
+    cube.rotation = Math.max(-0.55, Math.min(0.55, cube.vy * 0.07));
+
+    if (cube.y < 0 || cube.y + cube.size >= groundY) dead = true;
+    if (!dead && ceilingSpikeCollision()) dead = true;
+    if (!dead && exitWallCollision()) dead = true;
+  } else {
+    cube.vy += gravity;
+    cube.y += cube.vy;
+
+    if (cube.y + cube.size >= groundY) {
+      cube.y = groundY - cube.size;
+      cube.vy = 0;
+      cube.grounded = true;
+      cube.rotation =
+        Math.round(cube.rotation / (Math.PI / 2)) * (Math.PI / 2);
+    } else {
+      cube.grounded = false;
+      cube.rotation += 0.09;
+    }
+
+    for (const o of obstacles) {
+      if (o.x - camera > -100 && o.x - camera < 180 && hitSpike(o)) {
+        dead = true;
+        break;
+      }
+    }
+  }
+
+  if (camera >= level.length) {
+    camera = level.length;
+    won = true;
+  }
+
+  if (dead || won) {
+    stopInput();
+    updateInstructions();
+  }
+}
+
+function draw() {
+  drawBackground();
+  drawGround();
+
+  if (selectedLevel === 3) {
+    drawShipPlatform();
+    drawExitWalls();
+    drawPortal(portalStart(), "#22ffb4", "SHIP");
+    drawPortal(portalEnd(), "#ff5d71", "CUBE");
+  }
+
+  for (const o of obstacles) {
+    if (o.x - camera > -100 && o.x - camera < 1000) drawObstacle(o);
+  }
+
+  if (started) {
+    if (shipMode) drawShip();
+    else drawCube();
+  }
+
+  drawUI();
+
+  if (dead) {
+    drawEndScreen("CRASHED!", "Avoid the spikes and watch your altitude!");
+  } else if (won) {
+    drawEndScreen("LEVEL COMPLETE!", "You beat " + level.name + "!");
+  } else if (!started && menu.classList.contains("hidden")) {
+    drawEndScreen("READY?", "Press PLAY LEVEL to start");
+  }
+}
+
+cube = {
+  x: 120,
+  y: groundY - PLAYER_SIZE,
+  size: PLAYER_SIZE,
+  vy: 0,
+  grounded: true,
+  rotation: 0
+};
+
+obstacles = LEVELS[1].obstacles.map(o => ({ x: o[0], type: o[1] }));
+menu.classList.remove("hidden");
+updateInstructions();
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</div>
+</body>
+</html>
